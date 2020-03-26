@@ -1,0 +1,334 @@
+---
+title: "L. panamensis: Antimonial"
+author: "atb abelew@gmail.com"
+date: "`r Sys.Date()`"
+output:
+  rmdformats::readthedown:
+    code_download: true
+    code_folding: show
+    df_print: paged
+    fig_caption: true
+    fig_height: 7
+    fig_width: 7
+    highlight: tango
+    width: 300
+    keep_md: false
+    mode: selfcontained
+    toc_float: true
+  BiocStyle::html_document:
+    code_download: true
+    code_folding: show
+    fig_caption: true
+    fig_height: 7
+    fig_width: 7
+    highlight: tango
+    keep_md: false
+    mode: selfcontained
+    toc_float: true
+  html_document:
+    code_download: true
+    code_folding: show
+    fig_caption: true
+    fig_height: 7
+    fig_width: 7
+    highlight: tango
+    keep_md: false
+    mode: selfcontained
+    number_sections: true
+    self_contained: true
+    theme: readable
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: false
+---
+
+<style type="text/css">
+body, td {
+  font-size: 16px;
+}
+code.r{
+  font-size: 16px;
+}
+pre {
+ font-size: 16px
+}
+</style>
+
+```{r options, include=FALSE}
+library("hpgltools")
+tt <- devtools::load_all("~/hpgltools")
+knitr::opts_knit$set(width=120,
+                     progress=TRUE,
+                     verbose=TRUE,
+                     echo=TRUE)
+knitr::opts_chunk$set(error=TRUE,
+                      dpi=96)
+old_options <- options(digits=4,
+                       max.print=120,
+                       stringsAsFactors=FALSE,
+                       knitr.duplicate.label="allow")
+ggplot2::theme_set(ggplot2::theme_bw(base_size=10))
+ver <- "20200304"
+previous_file <- "index.Rmd"
+
+tmp <- try(sm(loadme(filename=paste0(gsub(pattern="\\.Rmd", replace="", x=previous_file), "-v", ver, ".rda.xz"))))
+rmd_file <- "antimonial_20200304.Rmd"
+```
+
+# Annotation version: `r ver`
+
+## Genome annotation input
+
+There are a few methods of importing annotation data into R.  The following are
+two attempts, the second is currently being used in these analyses.
+
+```{r make_orgdb}
+meta <- EuPathDB::download_eupath_metadata(webservice="tritrypdb")
+
+lm_entry <- EuPathDB::get_eupath_entry(species="Leishmania major", metadata=meta)
+lp_entry <- EuPathDB::get_eupath_entry(species="Leishmania panamensis", metadata=meta)
+lmex_entry <- EuPathDB::get_eupath_entry(species="Leishmania mexicana", metadata=meta)
+lama_entry <- EuPathDB::get_eupath_entry(species="Leishmania amazonensis", metadata=meta)
+lb_entry <- EuPathDB::get_eupath_entry(species="2904", metadata=meta)
+ld_entry <- EuPathDB::get_eupath_entry(species="donovani", metadata=meta)
+crit_entry <- EuPathDB::get_eupath_entry(species="Crith", metadata=meta)
+
+testing_panamensis <- EuPathDB::make_eupath_orgdb(entry=lp_entry)
+testing_braziliensis <- EuPathDB::make_eupath_orgdb(entry=lb_entry)
+testing_donovani <- EuPathDB::make_eupath_orgdb(entry=ld_entry)
+testing_mexicana <- EuPathDB::make_eupath_orgdb(entry=lmex_entry)
+testing_major <- EuPathDB::make_eupath_orgdb(entry=lm_entry)
+testing_crith <- EuPathDB::make_eupath_orgdb(entry=crit_entry)
+```
+
+Assuming the above packages got created, we may load them and extract the
+annotation data.
+
+```{r lpanamensis_orgdb}
+wanted_fields <- c("annot_cds_length", "annot_chromosome", "annot_gene_entrez_id",
+                   "annot_gene_name", "annot_strand", "gid", "go_go_id",
+                   "go_go_term_name", "go_ontology",
+                   "interpro_description" ,"interpro_e_value", "type_gene_type")
+
+lm_org <- sm(EuPathDB::load_eupath_annotations(entry=lm_entry))
+lp_org <- sm(EuPathDB::load_eupath_annotations(entry=lp_entry))
+lb_org <- sm(EuPathDB::load_eupath_annotations(entry=lb_entry))
+ld_org <- sm(EuPathDB::load_eupath_annotations(entry=ld_entry))
+lmex_org <- sm(EuPathDB::load_eupath_annotations(entry=lmex_entry))
+cf_ort <- sm(EuPathDB::load_eupath_annotations(entry=crit_entry))
+```
+
+## Read a gff file
+
+In contrast, it is possible to load most annotations of interest directly from
+the gff files used in the alignments.  More in-depth information for the human
+transcriptome may be extracted from biomart.
+
+One compelling reason to use the gff annotations stems from the fact that we
+often use htseq-count for the final quantification step, which uses the gff
+file.  Thus if we call on the same file here we can be certain that the IDs
+match and there will be no confusion.
+
+```{r genome_input}
+lp_gff <- "reference/lpanamensis.gff"
+lb_gff <- "reference/lbraziliensis.gff"
+hs_gff <- "reference/hsapiens.gtf"
+lp_fasta <- "reference/lpanamensis.fasta.xz"
+lb_fasta <- "reference/lbraziliensis.fasta.xz"
+hs_fasta <- "reference/hsapiens.fasta.xz"
+
+lp_annotations <- sm(load_gff_annotations(lp_gff, type="gene"))
+rownames(lp_annotations) <- paste0("exon_", lp_annotations$web_id, ".1")
+
+lb_annotations <- sm(load_gff_annotations(lb_gff, type="gene"))
+hs_gff_annot <- sm(load_gff_annotations(hs_gff, id_col="gene_id"))
+
+hs_annotations <- load_biomart_annotations()$annotation
+hs_annotations$ID <- hs_annotations$geneID
+rownames(hs_annotations) <- make.names(hs_annotations[["ensembl_gene_id"]], unique=TRUE)
+dim(hs_annotations)
+
+lp_size_dist <- plot_histogram(lp_annotations[["width"]])
+lp_size_dist
+hs_size_dist <- plot_histogram(hs_annotations[["cds_length"]])
+hs_size_dist +
+  ggplot2::scale_x_continuous(limits=c(0, 20000))
+```
+
+## Extracting Cell Types
+
+Maria Adelaida requested adding the xCell cell types to the data.
+
+```{r xCell_data}
+library(xCell)
+data("xCell.data", package="xCell")
+summary(xCell.data)
+library(GSEABase)
+details(xCell.data$signatures[[1]])
+
+sigs <- xCell.data$signatures
+head(names(sigs), n=10)
+## Here we see that the signatures are encoded as 3 element lists, the first element is the
+## cell type, followed by source, followed by replicate.txt.
+cell_types <- unlist(lapply(strsplit(x=names(sigs), split="%"), function(x) { x[[1]] }))
+cell_sources <- unlist(lapply(strsplit(x=names(sigs), split="%"), function(x) { x[[2]] }))
+type_fact <- as.factor(cell_types)
+types <- levels(type_fact)
+
+celltypes_to_genes <- list()
+for (c in 1:length(types)) {
+  type <- types[c]
+  idx <- cell_types == type
+  set <- sigs[idx]
+  genes <- set %>%
+    geneIds() %>%
+    unlist()
+  celltypes_to_genes[[type]] <- as.character(genes)
+}
+genes_to_celltypes <- Biobase::reverseSplit(celltypes_to_genes)
+
+g2c_df <- data.frame(row.names=unique(names(genes_to_celltypes)))
+g2c_df[["found"]] <- 0
+for (c in 1:length(celltypes_to_genes)) {
+  celltype_name <- names(celltypes_to_genes)[[c]]
+  message("Starting ", c, ": ", celltype_name)
+  celltype_column <- as.data.frame(celltypes_to_genes[[c]])
+  colnames(celltype_column) <- celltype_name
+  rownames(celltype_column) <- make.names(celltype_column[[1]], unique=TRUE)
+  celltype_column[[1]] <- TRUE
+  g2c_df <- merge(g2c_df, celltype_column, by="row.names", all.x=TRUE)
+  rownames(g2c_df) <- g2c_df[[1]]
+  g2c_df <- g2c_df[, -1]
+}
+head(g2c_df)
+na_idx <- is.na(g2c_df)
+g2c_df[na_idx] <- FALSE
+```
+
+## Getting ontology data
+
+Annotation for gene ontologies may be gathered from a similarly large number of
+sources. The following are a couple.
+
+```{r ontology}
+## Try using biomart
+hs_go_biomart <- sm(load_biomart_go())
+## or the org.Hs.eg.db sqlite database
+
+lp_lengths <- lp_annotations[, c("ID", "width")]
+lb_lengths <- lb_annotations[, c("ID", "width")]
+hs_lengths <- hs_annotations[, c("ensembl_gene_id", "cds_length")]
+colnames(hs_lengths) <- c("ID", "width")
+
+lm_go <- sm(EuPathDB::load_eupath_go(entry=lm_entry))
+lp_org <- sm(EuPathDB::load_eupath_annotations(entry=lp_entry))
+lb_org <- sm(EuPathDB::load_eupath_annotations(entry=lb_entry))
+ld_org <- sm(EuPathDB::load_eupath_annotations(entry=ld_entry))
+lmex_org <- sm(EuPathDB::load_eupath_annotations(entry=lmex_entry))
+cf_ort <- sm(EuPathDB::load_eupath_annotations(entry=crit_entry))
+
+##lp_goids <- read.csv(file="reference/lpan_go.txt.xz", sep="\t", header=FALSE)
+##lb_goids <- read.csv(file="reference/lbraz_go.txt.xz", sep="\t", header=FALSE)
+##colnames(lp_goids) <- c("ID","GO","ont","name","source","tag")
+##colnames(lb_goids) <- c("ID","GO","ont","name","source","tag")
+```
+
+# Putting the pieces together
+
+The macrophage experiment has samples across 2 contexts, the host and parasite.
+The following block sets up one experiment for each.  If you open the
+all_samples-species.xlsx files, you will note immediately that a few different
+attempts were made at ascertaining the most likely experimental factors that
+contributed to the readily apparent batch effects.
+
+## The human transcriptome mappings
+
+Keep in mind that if I change the experimental design with new annotations, I
+must therefore regenerate the following.
+
+```{r hs_expt}
+hs_final_annotations <- hs_annotations
+hs_final_annotations <- hs_final_annotations[, c("ensembl_transcript_id", "ensembl_gene_id", "cds_length",
+                                                 "hgnc_symbol", "description", "gene_biotype")]
+hs_final_annotations$rn <- rownames(hs_final_annotations)
+note <- "New experimental design factors by snp added 2016-09-20"
+hs_final_annotations <- merge(hs_final_annotations, g2c_df,
+                              by.x="hgnc_symbol", by.y="row.names", all.x=TRUE)
+rownames(hs_final_annotations) <- hs_final_annotations$rn
+hs_final_annotations$rn <- NULL
+na_idx <- is.na(hs_final_annotations$xcell_types)
+hs_final_annotations[na_idx, "xcell_types"] <- ""
+
+hs_expt <- sm(create_expt("sample_sheets/all_samples-combined.xlsx",
+                          gene_info=hs_final_annotations,
+                          file_column="humanfile",
+                          notes=note))
+hs_annotations <- fData(hs_expt)
+undef_idx <- hs_annotations == "undefined"
+hs_annotations[undef_idx] <- FALSE
+fData(hs_expt[["expressionset"]]) <- hs_annotations
+
+knitr::kable(head(hs_expt$design, n=1))
+
+cds_entries <- fData(hs_expt)
+cds_entries <- cds_entries[["gene_biotype"]] == "protein_coding"
+hs_cds_expt <- hs_expt
+hs_cds_expt$expressionset <- hs_cds_expt$expressionset[cds_entries, ]
+new_cds_entries <- fData(hs_cds_expt)
+```
+
+## The parasite transcriptome mappings
+
+```{r parasite_expt}
+parasite_expt <- sm(create_expt("sample_sheets/all_samples-combined.xlsx",
+                                gene_info=lp_annotations, file_column="parasitefile"))
+knitr::kable(head(parasite_expt$design, n=3),
+             caption="The first three rows of the parasite experimental design.")
+```
+
+# Supplemental Table 1
+
+Table S1 is going to be a summary of the metadata in all_samples-combined
+This may also include some of the numbers regarding mapping %, etc.
+
+Wanted columns:
+
+* Sample ID:  HPGLxxxx
+* Donor Code: TM130 or PG1xx
+* Cell Type:  Macrophage or PBMC
+* Infection Status:  Infected or Uninfected
+* Disease Outcome:  Chronic or Self-Healing or NA
+* Batch: A or B (macrophage); NA for PBMC
+* Number of reads that passed Illumina filter
+* Number of reads after trimming
+* Number of reads mapped - human
+* % reads mapped - human
+* Number of reads mapped - L.panamensis
+* % reads mapped - L.panamensis
+
+Use the Tcruzi colors.
+
+* A1 is a large title: "Macrophage Samples"
+* Row 2 is the blue column headings
+* 3-m contains Macrophage metadata
+* m+1 is blank
+* m+2 is a large title: "PBMC Samples"
+* m+3-n contains PBMC metadata
+
+# End
+
+At this point, we should have everything necessary to perform the various
+analyses of the 4 sub-experiments.  So save the current data for reuse
+elsewhere.
+
+The experimental design is available
+[here](sample_sheets/all_samples-combined.xlsx").
+
+```{r saveme}
+message(paste0("This is hpgltools commit: ", get_git_commit()))
+this_save <- paste0(gsub(pattern="\\.Rmd", replace="", x=rmd_file), "-v", ver, ".rda.xz")
+message(paste0("Saving to ", this_save))
+tmp <- saveme(filename=this_save)
+pander::pander(sessionInfo())
+```
